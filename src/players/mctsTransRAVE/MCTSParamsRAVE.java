@@ -1,4 +1,4 @@
-package players.mctsRAVE;
+package players.mctsTransRAVE;
 
 import players.optimisers.ParameterSet;
 import utils.Pair;

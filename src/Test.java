@@ -1,14 +1,11 @@
 import core.Game;
 import players.*;
-import players.MCTSTransposition.MCTSParamsTransposition;
-import players.MCTSTransposition.MCTSPlayerTransposition;
-import players.mctsRAVE.MCTSParamsRAVE;
-import players.mctsRAVE.MCTSPlayerRAVE;
+import players.mctsTransRAVE.MCTSParamsRAVE;
+import players.mctsTransRAVE.MCTSPlayerRAVE;
 import utils.Types;
 import players.rhea.utils.Constants;
 import players.mcts.MCTSPlayer;
 import players.mcts.MCTSParams;
-import players.rhea.RHEAPlayer;
 import players.rhea.utils.RHEAParams;
 
 
@@ -19,7 +16,7 @@ public class Test {
     public static void main(String[] args) {
 
         // Game parameters
-        long seed = System.currentTimeMillis();
+        long seed = 93988;
         int boardSize = Types.BOARD_SIZE;
         Types.GAME_MODE gameMode = Types.GAME_MODE.FFA;
         boolean useSeparateThreads = false;
@@ -41,15 +38,18 @@ public class Test {
         RHEAParams rheaParams = new RHEAParams();
         rheaParams.heurisic_type = Constants.CUSTOM_HEURISTIC;
 
+        MCTSParamsRAVE mctsParamsRAVE = new MCTSParamsRAVE();
+        mctsParamsRAVE.stop_type = mctsParamsRAVE.STOP_ITERATIONS;
+        mctsParamsRAVE.heuristic_method = mctsParamsRAVE.CUSTOM_HEURISTIC;
+
+
         players.add(new MCTSPlayer(seed, playerID++, mctsParams));
         players.add(new DoNothingPlayer(playerID++));
         players.add(new DoNothingPlayer(playerID++));
-        //players.add(new MCTSPlayer(seed, playerID++, mctsParams));
 
-//        players.add(new SimplePlayer(seed, playerID++));
-        //players.add(new RHEAPlayer(seed, playerID++, rheaParams));
+        players.add(new MCTSPlayerRAVE(seed, playerID++, mctsParamsRAVE));
+
         //players.add(new SimplePlayer(seed, playerID++));
-        players.add(new MCTSPlayerRAVE(seed, playerID++, new MCTSParamsRAVE()));
         //players.add(new RHEAPlayer(seed, playerID++, rheaParams));
 
         // Make sure we have exactly NUM_PLAYERS players
@@ -61,7 +61,7 @@ public class Test {
         game.setPlayers(players);
 
         //Run a single game with the players
-        Run.runGame(game, ki1, ki2, useSeparateThreads);
+        //Run.runGame(game, ki1, ki2, useSeparateThreads);
 
         /* Uncomment to run the replay of the previous game: */
 //        if (game.isLogged()){
@@ -73,8 +73,8 @@ public class Test {
 
 
         /* Run with no visuals, N Times: */
-        //int N = 10;
-        //Run.runGames(game, new long[]{seed}, N, useSeparateThreads);
+        int N = 5;
+        Run.runGames(game, new long[]{seed}, N, useSeparateThreads);
 
     }
 

@@ -1,4 +1,4 @@
-package players.mctsRAVE;
+package players.mctsTransRAVE;
 
 import core.GameState;
 import players.heuristics.AdvancedHeuristic;
@@ -8,7 +8,6 @@ import utils.*;
 
 import java.util.ArrayList;
 import java.util.Hashtable;
-import java.util.List;
 import java.util.Random;
 
 import static java.lang.Math.max;
@@ -16,12 +15,12 @@ import static java.lang.Math.max;
 public class SingleTreeNodeRAVE
 {
     public MCTSParamsRAVE params;
+    private double paramVal = 50.0;
 
     private final SingleTreeNodeRAVE parent;
     private final SingleTreeNodeRAVE[] children;
     private final Random m_rnd;
     private final int m_depth;
-    private final double[] bounds = new double[]{Double.MAX_VALUE, -Double.MAX_VALUE};
     private final int childIdx;
     private int stateIdx;
     private int fmCallsCount;
@@ -63,17 +62,20 @@ public class SingleTreeNodeRAVE
         int nVisits;
         double[][] actionInfo;
         double[][] amafInfo;
+        double[] bounds;
 
         public StateInfo(){
             nVisits = 0;
-            actionInfo = new double[6][4];
+            actionInfo = new double[6][2];
             for (double[] i : actionInfo) {
-                i = new double[]{0,0,Double.MAX_VALUE, -Double.MAX_VALUE};
+                i = new double[]{0,0};
             }
-            amafInfo = new double[6][4];
+            amafInfo = new double[6][2];
             for (double[] i : amafInfo) {
-                i = new double[]{0,0,Double.MAX_VALUE, -Double.MAX_VALUE};
+                i = new double[]{0,0};
             }
+
+            bounds = new double[]{Double.MAX_VALUE, -Double.MAX_VALUE};
         }
     }
 
@@ -207,28 +209,23 @@ public class SingleTreeNodeRAVE
     private SingleTreeNodeRAVE uct(GameState state) {
         SingleTreeNodeRAVE selected = null;
         double bestValue = -Double.MAX_VALUE;
-        double paramVal = 600;
 
         // Get the node state information from the hashtable
         StateInfo info = (StateInfo) statesTable.get(this.stateIdx);
         int i = 0;
         for (double[] action : info.actionInfo)
         {
+            // Child_Value is the standard Q value (totValue of node / number of visits to the node)
             // Get the total reward for the action and the N(s,a)
             // and calculate the standard Q(s,a)
             double hvVal = action[1];
             double childValue =  hvVal / (action[0] + params.epsilon);
 
-            // Child_Value is the Q value (totValue of node / number of visits to the node)
-            childValue = Utils.normalise(childValue, action[2], action[3]);
-
+            // amadChildVal is the amafscore for the action
             // Get the total reward and the N(s,a) gotten for the amaf score
             // compute the amaf score
             double amafHvVal = info.amafInfo[i][1];
             double amafChildVal = amafHvVal / (info.amafInfo[i][0] + params.epsilon);
-
-            // amadChildVal is the amafscore for the action
-            amafChildVal = Utils.normalise(amafChildVal, info.amafInfo[i][2], info.amafInfo[i][3]);
 
             // Alpha value is the value that determines the weight of the amaf score and the standard score
             double alphaValue = max(0, (paramVal - info.nVisits)/paramVal);
@@ -236,6 +233,8 @@ public class SingleTreeNodeRAVE
             // The star child is the Q*(s,a) obtained by combining the amaf score and the standard score
             // obtained using the RAVE technique
             double starChild = (alphaValue * amafChildVal) + ((1 - alphaValue) * childValue);
+
+            starChild = Utils.normalise(starChild, info.bounds[0], info.bounds[1]);
 
             // UCT_value is the decision value (Q-value + C*srt(ln(number of visits) / number of times action has been taken from state))
             double uctValue = starChild +
@@ -254,7 +253,7 @@ public class SingleTreeNodeRAVE
         if (selected == null)
         {
             throw new RuntimeException("Warning! returning null: " + bestValue + " : " + this.children.length + " " +
-                    + bounds[0] + " " + bounds[1]);
+                    + info.bounds[0] + " " + info.bounds[1]);
         }
 
         //Roll the state:
@@ -327,17 +326,11 @@ public class SingleTreeNodeRAVE
 
         // Update AMAF score for the actions taken in the rollout
         for (int actionIdx : rolloutActions) {
+            n = n.parent;
             while (n != null){
                 StateInfo info = (StateInfo) statesTable.get(n.stateIdx);
                 info.amafInfo[actionIdx][0]++;
                 info.amafInfo[actionIdx][1] += result;
-
-                if (result < info.amafInfo[actionIdx][2]) {
-                    info.amafInfo[actionIdx][2] = result;
-                }
-                if (result > info.amafInfo[actionIdx][3]) {
-                    info.amafInfo[actionIdx][3] = result;
-                }
 
                 n = n.parent;
             }
@@ -351,19 +344,19 @@ public class SingleTreeNodeRAVE
             StateInfo info = (StateInfo) statesTable.get(n.stateIdx);
             info.nVisits++;
 
+            if (result < info.bounds[0]) {
+                info.bounds[0] = result;
+            }
+            if (result > info.bounds[1]) {
+                info.bounds[1] = result;
+            }
+
             // update the standard score of the parent node of the node currently being analysed
             SingleTreeNodeRAVE np = n.parent;
             if(np != null) {
                 info = (StateInfo) statesTable.get(np.stateIdx);
                 info.actionInfo[n.childIdx][0]++;
                 info.actionInfo[n.childIdx][1] += result;
-
-                if (result < info.actionInfo[n.childIdx][2]) {
-                    info.actionInfo[n.childIdx][2] = result;
-                }
-                if (result > info.actionInfo[n.childIdx][3]) {
-                    info.actionInfo[n.childIdx][3] = result;
-                }
 
                 // update the amaf scores for the current action as if it was taken in previous steps
                 // (Updates the amaf scores for each node above the parent node of the current node being analysed)
@@ -372,13 +365,6 @@ public class SingleTreeNodeRAVE
                     info = (StateInfo) statesTable.get(npa.stateIdx);
                     info.amafInfo[n.childIdx][0]++;
                     info.amafInfo[n.childIdx][1] += result;
-
-                    if (result < info.amafInfo[n.childIdx][2]) {
-                        info.amafInfo[n.childIdx][2] = result;
-                    }
-                    if (result > info.amafInfo[n.childIdx][3]) {
-                        info.amafInfo[n.childIdx][3] = result;
-                    }
 
                     npa = npa.parent;
                 }
@@ -428,7 +414,7 @@ public class SingleTreeNodeRAVE
         return selected;
     }
 
-    private int bestAction()
+    int bestAction()
     {
         int selected = -1;
         double bestValue = -Double.MAX_VALUE;
@@ -438,7 +424,10 @@ public class SingleTreeNodeRAVE
 
             if(info.actionInfo[i] != null) {
                 double childValue = info.actionInfo[i][1] / (info.actionInfo[i][0] + params.epsilon);
-                childValue = Utils.noise(childValue, params.epsilon, this.m_rnd.nextDouble());     //break ties randomly
+                double amafChildVal = info.amafInfo[i][1] / (info.amafInfo[i][0] + params.epsilon);
+                double alphaValue = max(0, (paramVal - info.nVisits)/paramVal);
+                double starChild = (alphaValue * amafChildVal) + ((1 - alphaValue) * childValue);
+                childValue = Utils.noise(starChild, params.epsilon, this.m_rnd.nextDouble());     //break ties randomly
                 if (childValue > bestValue) {
                     bestValue = childValue;
                     selected = i;

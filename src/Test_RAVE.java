@@ -17,7 +17,7 @@ import java.util.*;
 
 import static utils.Types.VISUALS;
 
-public class Run {
+public class Test_RAVE {
 
     private static void printHelp()
     {
@@ -39,7 +39,7 @@ public class Run {
 
         //default
         if(args.length == 0)
-            args = new String[]{"0", "-1", "10", "-1", "8", "5", "8", "5"};
+            args = new String[]{"0", "-1", "10", "-1", "7", "5", "7", "5"};
 
         if(args.length != 8) {
             printHelp();

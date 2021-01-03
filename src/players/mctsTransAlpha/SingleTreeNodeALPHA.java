@@ -1,4 +1,4 @@
-package players.MCTSTransposition;
+package players.mctsTransAlpha;
 
 import core.GameState;
 import players.heuristics.AdvancedHeuristic;
@@ -13,40 +13,43 @@ import java.util.ArrayList;
 import java.util.Hashtable;
 import java.util.Random;
 
-public class SingleTreeNodeTransposition
-{
-    public MCTSParamsTransposition params;
+import static java.lang.Math.max;
 
-    private SingleTreeNodeTransposition parent;
-    private SingleTreeNodeTransposition[] children;
-    private Random m_rnd;
-    private int m_depth;
-    private int childIdx;
+public class SingleTreeNodeALPHA
+{
+    public MCTSParamsALPHA params;
+    private double paramVal = 0.4;
+
+    private final SingleTreeNodeALPHA parent;
+    private final SingleTreeNodeALPHA[] children;
+    private final Random m_rnd;
+    private final int m_depth;
+    private final int childIdx;
     private int stateIdx;
     private int fmCallsCount;
 
-    private int num_actions;
-    private Types.ACTIONS[] actions;
+    private final int num_actions;
+    private final Types.ACTIONS[] actions;
 
     private GameState rootState;
     private StateHeuristic rootStateHeuristic;
 
     // Transpositions table
-    private static Hashtable statesTable = new Hashtable();
+    private static final Hashtable statesTable = new Hashtable();
 
-    SingleTreeNodeTransposition(MCTSParamsTransposition p, Random rnd, int num_actions, Types.ACTIONS[] actions) {
+    SingleTreeNodeALPHA(MCTSParamsALPHA p, Random rnd, int num_actions, Types.ACTIONS[] actions) {
         this(p, null, -1, rnd, num_actions, actions, 0, null);
     }
 
-    private SingleTreeNodeTransposition(MCTSParamsTransposition p, SingleTreeNodeTransposition parent, int childIdx, Random rnd, int num_actions,
-                                        Types.ACTIONS[] actions, int fmCallsCount, StateHeuristic sh) {
+    private SingleTreeNodeALPHA(MCTSParamsALPHA p, SingleTreeNodeALPHA parent, int childIdx, Random rnd, int num_actions,
+                                Types.ACTIONS[] actions, int fmCallsCount, StateHeuristic sh) {
         this.params = p;
         this.fmCallsCount = fmCallsCount;
         this.parent = parent;
         this.m_rnd = rnd;
         this.num_actions = num_actions;
         this.actions = actions;
-        children = new SingleTreeNodeTransposition[num_actions];
+        children = new SingleTreeNodeALPHA[num_actions];
         this.childIdx = childIdx;
         if(parent != null) {
             m_depth = parent.m_depth + 1;
@@ -60,14 +63,18 @@ public class SingleTreeNodeTransposition
     // Will be placed in the hashtable
     class StateInfo{
         int nVisits;
-        double actionInfo[][];
-        double bounds[];
+        double[][] actionInfo;
+        double[][] amafInfo;
+        double[] bounds;
 
         public StateInfo(){
             nVisits = 0;
-
             actionInfo = new double[6][2];
             for (double[] i : actionInfo) {
+                i = new double[]{0,0};
+            }
+            amafInfo = new double[6][2];
+            for (double[] i : amafInfo) {
                 i = new double[]{0,0};
             }
 
@@ -105,11 +112,11 @@ public class SingleTreeNodeTransposition
             GameState state = rootState.copy();
             ElapsedCpuTimer elapsedTimerIteration = new ElapsedCpuTimer();
             // Selection Step
-            SingleTreeNodeTransposition selected = treePolicy(state);
+            SingleTreeNodeALPHA selected = treePolicy(state);
             // Simulation Step
-            double delta = selected.rollOut(state);
+            Object[] delta = selected.rollOut(state);
             // Backprobagation Step
-            backUp(selected, delta);
+            backUp(selected, (double) delta[0], (ArrayList<Integer>) delta[1]);
 
             //Stopping condition
             if(params.stop_type == params.STOP_TIME) {
@@ -130,9 +137,9 @@ public class SingleTreeNodeTransposition
         //System.out.println(" ITERS " + numIters);
     }
 
-    private SingleTreeNodeTransposition treePolicy(GameState state) {
+    private SingleTreeNodeALPHA treePolicy(GameState state) {
 
-        SingleTreeNodeTransposition cur = this;
+        SingleTreeNodeALPHA cur = this;
 
         while (!state.isTerminal() && cur.m_depth < params.rollout_depth)
         {
@@ -151,7 +158,7 @@ public class SingleTreeNodeTransposition
     }
 
     // Expand the tree node by selecting the next available action
-    private SingleTreeNodeTransposition expand(GameState state) {
+    private SingleTreeNodeALPHA expand(GameState state) {
 
         int bestAction = 0;
         double bestValue = -1;
@@ -171,7 +178,7 @@ public class SingleTreeNodeTransposition
         if (!statesTable.containsKey(stateID))
             statesTable.put(stateID, new StateInfo());
 
-        SingleTreeNodeTransposition tn = new SingleTreeNodeTransposition(params,this,bestAction,this.m_rnd,num_actions,
+        SingleTreeNodeALPHA tn = new SingleTreeNodeALPHA(params,this,bestAction,this.m_rnd,num_actions,
                 actions, fmCallsCount, rootStateHeuristic);
         tn.stateIdx = stateID;
         children[bestAction] = tn;
@@ -202,8 +209,8 @@ public class SingleTreeNodeTransposition
     }
 
     // Select the best child node using Upper Confidence Bound
-    private SingleTreeNodeTransposition uct(GameState state) {
-        SingleTreeNodeTransposition selected = null;
+    private SingleTreeNodeALPHA uct(GameState state) {
+        SingleTreeNodeALPHA selected = null;
         double bestValue = -Double.MAX_VALUE;
 
         // Get the node state information from the hashtable
@@ -211,14 +218,26 @@ public class SingleTreeNodeTransposition
         int i = 0;
         for (double[] action : info.actionInfo)
         {
+            // Child_Value is the standard Q value (totValue of node / number of visits to the node)
+            // Get the total reward for the action and the N(s,a)
+            // and calculate the standard Q(s,a)
             double hvVal = action[1];
             double childValue =  hvVal / (action[0] + params.epsilon);
 
-            // Child_Value is the Q value (totValue of node / number of visits to the node)
-            childValue = Utils.normalise(childValue, info.bounds[0], info.bounds[1]);
+            // amadChildVal is the amafscore for the action
+            // Get the total reward and the N(s,a) gotten for the amaf score
+            // compute the amaf score
+            double amafHvVal = info.amafInfo[i][1];
+            double amafChildVal = amafHvVal / (info.amafInfo[i][0] + params.epsilon);
+
+            // The star child is the Q*(s,a) obtained by combining the amaf score and the standard score
+            // obtained using the RAVE technique
+            double starChild = (paramVal * amafChildVal) + ((1 - paramVal) * childValue);
+
+            starChild = Utils.normalise(starChild, info.bounds[0], info.bounds[1]);
 
             // UCT_value is the decision value (Q-value + C*srt(ln(number of visits) / number of times action has been taken from state))
-            double uctValue = childValue +
+            double uctValue = starChild +
                     params.K * Math.sqrt(Math.log(info.nVisits + 1) / (action[0] + params.epsilon));
 
             uctValue = Utils.noise(uctValue, params.epsilon, this.m_rnd.nextDouble());     //break ties randomly
@@ -244,17 +263,21 @@ public class SingleTreeNodeTransposition
     }
 
     //
-    private double rollOut(GameState state)
+    private Object[] rollOut(GameState state)
     {
         int thisDepth = this.m_depth;
+        ArrayList<Integer> actionsTaken = new ArrayList<Integer>();
 
         while (!finishRollout(state,thisDepth)) {
             int action = safeRandomAction(state);
+            actionsTaken.add(action);
             roll(state, actions[action]);
             thisDepth++;
         }
 
-        return rootStateHeuristic.evaluateState(state);
+        double result = rootStateHeuristic.evaluateState(state);
+
+        return new Object[]{result, actionsTaken};
     }
 
     private int safeRandomAction(GameState state)
@@ -297,9 +320,25 @@ public class SingleTreeNodeTransposition
         return false;
     }
 
-    private void backUp(SingleTreeNodeTransposition node, double result)
+    private void backUp(SingleTreeNodeALPHA node, double result, ArrayList<Integer> rolloutActions)
     {
-        SingleTreeNodeTransposition n = node;
+        SingleTreeNodeALPHA n = node;
+
+        // Update AMAF score for the actions taken in the rollout
+        for (int actionIdx : rolloutActions) {
+            n = n.parent;
+            while (n != null){
+                StateInfo info = (StateInfo) statesTable.get(n.stateIdx);
+                info.amafInfo[actionIdx][0]++;
+                info.amafInfo[actionIdx][1] += result;
+
+                n = n.parent;
+            }
+            n = node;
+        }
+
+        // Update standard scores and AMAF scores for the actions taken by the Selection step
+        n = node;
         while(n != null)
         {
             StateInfo info = (StateInfo) statesTable.get(n.stateIdx);
@@ -312,11 +351,23 @@ public class SingleTreeNodeTransposition
                 info.bounds[1] = result;
             }
 
-            SingleTreeNodeTransposition np = n.parent;
+            // update the standard score of the parent node of the node currently being analysed
+            SingleTreeNodeALPHA np = n.parent;
             if(np != null) {
                 info = (StateInfo) statesTable.get(np.stateIdx);
                 info.actionInfo[n.childIdx][0]++;
                 info.actionInfo[n.childIdx][1] += result;
+
+                // update the amaf scores for the current action as if it was taken in previous steps
+                // (Updates the amaf scores for each node above the parent node of the current node being analysed)
+                SingleTreeNodeALPHA npa = np.parent;
+                while(npa != null){
+                    info = (StateInfo) statesTable.get(npa.stateIdx);
+                    info.amafInfo[n.childIdx][0]++;
+                    info.amafInfo[n.childIdx][1] += result;
+
+                    npa = npa.parent;
+                }
             }
 
             n = np;
@@ -363,7 +414,7 @@ public class SingleTreeNodeTransposition
         return selected;
     }
 
-    private int bestAction()
+    int bestAction()
     {
         int selected = -1;
         double bestValue = -Double.MAX_VALUE;
@@ -373,7 +424,9 @@ public class SingleTreeNodeTransposition
 
             if(info.actionInfo[i] != null) {
                 double childValue = info.actionInfo[i][1] / (info.actionInfo[i][0] + params.epsilon);
-                childValue = Utils.noise(childValue, params.epsilon, this.m_rnd.nextDouble());     //break ties randomly
+                double amafChildVal = info.amafInfo[i][1] / (info.amafInfo[i][0] + params.epsilon);
+                double starChild = (paramVal * amafChildVal) + ((1 - paramVal) * childValue);
+                childValue = Utils.noise(starChild, params.epsilon, this.m_rnd.nextDouble());     //break ties randomly
                 if (childValue > bestValue) {
                     bestValue = childValue;
                     selected = i;
@@ -392,7 +445,7 @@ public class SingleTreeNodeTransposition
 
 
     private boolean notFullyExpanded() {
-        for (SingleTreeNodeTransposition tn : children) {
+        for (SingleTreeNodeALPHA tn : children) {
             if (tn == null) {
                 return true;
             }

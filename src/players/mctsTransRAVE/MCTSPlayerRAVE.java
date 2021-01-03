@@ -1,4 +1,4 @@
-package players.mctsRAVE;
+package players.mctsTransRAVE;
 
 import core.GameState;
 import players.Player;
